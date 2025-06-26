@@ -1,3 +1,9 @@
+/data/
+/raw_data/
+/game_data/
+*.parquet
+*.csv
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
