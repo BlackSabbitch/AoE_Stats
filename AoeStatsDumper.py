@@ -1,7 +1,7 @@
 import requests
-import json
 import os
 import pandas as pd
+from pathlib import Path
 import logging
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,10 +11,10 @@ class AoeStatsDumper:
     _BASE_URL = "https://aoestats.io"
     _DUMP_URL = f"{_BASE_URL}/api/db_dumps"
 
-    def __init__(self, data_path="data", raw_data_path="raw_data", verbose=True):
-        self.data_path = data_path
-        self.raw_data_path = raw_data_path
-        os.makedirs(self.raw_data_path, exist_ok=True)
+    def __init__(self, data_path="data", raw_data_path="raw_data", verbose=False):
+        self.data_path = Path(data_path)
+        self.raw_data_path = Path(raw_data_path)
+        self.raw_data_path.mkdir(parents=True, exist_ok=True)
 
         self.logger = logging.getLogger("AoeStatsDumper")
         self.logger.setLevel(logging.INFO if verbose else logging.WARNING)
@@ -45,17 +45,17 @@ class AoeStatsDumper:
             self.logger.info(f"[GET] {url}")
             resp = requests.get(url)
             resp.raise_for_status()
-            with open(save_path, "wb") as f:
-                f.write(resp.content)
+            save_path.write_bytes(resp.content)
             self.logger.info(f"[OK] Saved to {save_path}")
         except Exception as e:
             self.logger.error(f"[ERROR] Failed to download {url}: {e}")
-            if os.path.exists(save_path):
-                os.remove(save_path)
+            if save_path.exists():
+                save_path.unlunk()
 
     def download_all_raw_data(self, force=False, max_workers=4):
         dumps = self.fetch_dumps_index()
         tasks = []
+
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             for dump in dumps:
                 date_range = f'{dump["start_date"]}_{dump["end_date"]}'
@@ -63,9 +63,9 @@ class AoeStatsDumper:
                     url = self._BASE_URL + dump[key]
                     key_name = key.replace("_url", "")
                     filename = f"{date_range}_{key_name}.parquet"
-                    save_path = os.path.join(self.raw_data_path, filename)
+                    save_path = self.raw_data_path / filename
 
-                    need_download = force or not os.path.exists(save_path) or not self._is_valid_parquet(save_path)
+                    need_download = force or not save_path.exists() or not self._is_valid_parquet(save_path)
                     if not need_download:
                         self.logger.info(f"[SKIP] {save_path} already exists.")
                         continue
@@ -76,5 +76,5 @@ class AoeStatsDumper:
 
 
 if __name__ == "__main__":
-    dumper = AoeStatsDumper(verbose=0)
-    dumper.download_all_raw_data(force=False)
+    dumper = AoeStatsDumper()
+    dumper.download_all_raw_data()
