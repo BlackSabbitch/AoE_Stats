@@ -2,7 +2,9 @@ from pathlib import Path
 from typing import Tuple, List
 from datetime import date, datetime
 import pandas as pd
+import os
 import logging
+from tqdm import tqdm
 
 
 class AoeDataLoader:
@@ -44,7 +46,7 @@ class AoeDataLoader:
         merge: bool = False,
         matches_pre_clean: bool = True,
         players_pre_clean: bool = True,
-        keep_invalid_game_id: bool  = True,
+        keep_invalid_game_id: bool  = False,
     ) -> dict:
         if not players and not matches:
             raise ValueError("At least one of 'players' or 'matches' must be True.")
@@ -60,15 +62,31 @@ class AoeDataLoader:
             [self.matches_files, self.players_files],
             [matches_pre_clean, players_pre_clean],):
 
+            if not files_list:
+                raise ValueError(f"[ERROR] No parquet files found in {key}_files")
+
             if flag:
+                self.logger.info(f"[LOAD] {key.capitalize()} data is collecting...")
                 if key not in self._cached_data or force_reload:
-                    df = pd.concat([pd.read_parquet(f) for f in files_list], ignore_index=True)
+                    dfs = []
+                    for f in tqdm(files_list, desc=f"[READ] Reading {key} files", unit="file"):
+                        try:
+                            dfs.append(pd.read_parquet(f))
+                        except Exception as e:
+                            self.logger.warning(f"[READ FAIL] Could not read {f}: {e}")
+                    if not dfs:
+                        raise ValueError(f"[ERROR] No valid parquet files could be read for {key}")
+                    self.logger.info(f"[LOAD] {key.capitalize()} data is concatinating...")
+                    df = pd.concat(dfs, ignore_index=True)
+                    self.logger.info(f"[OK] {key.capitalize()} data have been collected.")
                     if need_pre_clean:
+                        self.logger.info(f"[CLEAN] From {key.capitalize()} data is undergoing to be cleaned.")
                         df = self._clean(df, keep_invalid_game_id)
                     self._cached_data[key] = df
                 result[key] = self._cached_data[key]
 
         if merge:
+            self.logger.info(f"[MERGE] Players and matches merging...")
             if "merged" not in self._cached_data or force_reload:
                 if "players" not in result or "matches" not in result:
                     raise ValueError("Both players and matches data must be loaded to perform merge.")
@@ -105,4 +123,9 @@ class AoeDataLoader:
 
 if __name__ == "__main__":
     loader = AoeDataLoader()
-    print(loader.list_available_dates())
+    data = loader.load_data(matches=True, players=True, force_reload=False, merge=True)
+    loader.describe(data["matches"])
+    print()
+    loader.describe(data["players"])
+    print()
+    loader.describe(data["merged"])
